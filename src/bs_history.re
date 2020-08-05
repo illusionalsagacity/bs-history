@@ -1,43 +1,124 @@
-module History = {
+module type State = {type t;};
+
+/** @since 0.1.0 */
+module Make = (State: State) => {
+  type action = [ | `PUSH | `REPLACE | `POP];
+
+  type location = {
+    pathname: string,
+    search: string,
+    hash: string,
+    key: Js.nullable(string),
+    state: Js.nullable(State.t),
+  };
+
+  module PartialLocation = {
+    type t = {
+      pathname: Js.nullable(string),
+      search: Js.nullable(string),
+      hash: Js.nullable(string),
+      key: Js.nullable(string),
+      state: Js.nullable(State.t),
+    };
+
+    [@bs.obj]
+    external make:
+      (~pathname: string=?, ~search: string=?, ~hash: string=?, ~key: string=?, ~state: State.t=?, unit) => t;
+  };
+
+  type t = {
+    length: int,
+    action,
+    location,
+    index: Js.nullable(int) // FIXME: This only exists on MemoryHistory
+  };
+
+  /** @since 0.1.0 */
+  module PartialPath = {
+    type t = {
+      pathname: Js.nullable(string),
+      search: Js.nullable(string),
+      hash: Js.nullable(string),
+    };
+
+    [@bs.obj] external make: (~pathname: string=?, ~search: string=?, ~hash: string=?, unit) => t;
+  };
+
+  /** @since 0.1.0 */
+  module Transition = {
+    type t = {
+      action,
+      location,
+    };
+
+    [@bs.send] external retry: t => unit = "retry";
+  };
+
+  /** @since 0.1.0 */
+  type update = {
+    action,
+    location,
+  };
+
+  [@bs.send] external listen: (t, (. update) => unit) => (. unit) => unit = "listen";
+  [@bs.send]
+  external push: (t, [@bs.unwrap] [ | `str(string) | `to_(PartialPath.t)], ~state: State.t=?) => unit = "push";
+  [@bs.send]
+  external replace: (t, [@bs.unwrap] [ | `str(string) | `to_(PartialPath.t)], ~state: State.t=?) => unit = "replace";
+  [@bs.send] external go: (t, int) => unit = "go";
+  [@bs.send] external goBack: t => unit = "goBack";
+  [@bs.send] external goForward: t => unit = "goForward";
+  [@bs.send] external block: (t, (. Transition.t) => unit) => (. unit) => unit = "block";
+  [@bs.send] external createHref: (t, [@bs.unwrap] [ | `str(string) | `to_(PartialPath.t)]) => string = "createHref";
+};
+
+module State = {
   type t;
-  module Location = {
-    type t;
-    external pathname : t => string = "" [@@bs.get];
-    external search : t => string = "" [@@bs.get];
-    external hash : t => string = "" [@@bs.get];
-    external key : t => option string = "" [@@bs.get] [@@bs.return null_undefined_to_opt];
-  };
-  type action = [ | `PUSH | `REPLACE | `POP] [@@bs.string];
-  external length : t => int = "" [@@bs.get];
-  external action : t => action = "" [@@bs.get];
-  external location : t => string = "" [@@bs.get];
-  external listen : t => location::Location.t => action::action => unit => unit = "" [@@bs.send];
-  /* TODO: state typing */
-  module State = {
-    type t;
-  };
-  external push : t => url::string => state::list State.t => unit = "" [@@bs.send];
-  external replace : t => url::string => state::list State.t => unit = "" [@@bs.send];
-  external go : t => jumps::int => unit = "" [@@bs.send];
-  external goBack : t => unit = "" [@@bs.send];
-  external goForward : t => unit = "" [@@bs.send];
 };
 
-type getUserConfirmation = path::string => confirmation::bool => unit;
+/**
+ * A convenient default history with a state phantom type, in case you don't care about using location state.
+ */
+module History = Make(State);
 
-type browserHistoryOpt = {
-  basename: string,
-  forceRefresh: bool,
-  keyLength: int,
-  getUserConfirmation
+/** @since 0.1.0 */
+module BrowserHistoryOptions = {
+  type t = {window: Js.nullable(Dom.window)};
+
+  [@bs.obj] external make: (~window: Dom.window=?, unit) => t;
 };
 
-external createBrowserHistory : browserHistoryOpt => History.t = "" [@@bs.module];
+/** @since 0.1.0 */ [@bs.module] external createPath: History.PartialPath.t => string = "createPath";
 
-type memoryHistoryOpt = {initialEntries: list string, initialIndex: int, keyLength: int};
+/** @since 0.1.0 */ [@bs.module] external parsePath: string => History.PartialPath.t = "parsePath";
 
-external createMemoryHistory : memoryHistoryOpt => History.t = "" [@@bs.module];
+[@bs.module "history"]
+external createBrowserHistory: (~options: BrowserHistoryOptions.t=?, unit) => History.t = "createBrowserHistory";
 
-type hashHistoryOpt = {basename: string, hashType: string, getUserConfirmation};
+/** @since 0.1.0 */
+module MemoryHistoryOptions = {
+  [@unboxed]
+  type entry =
+    | Entry('a): entry;
 
-external createHashHistory : hashHistoryOpt => History.t = "" [@@bs.module];
+  type t = {
+    initialEntries: Js.nullable(array(entry)),
+    initialIndex: Js.nullable(int),
+  };
+
+  [@bs.obj] external make: (~initialEntries: array(entry)=?, ~initialIndex: int=?, unit) => t;
+};
+
+[@bs.module "history"]
+external createMemoryHistory: (~options: MemoryHistoryOptions.t=?, unit) => History.t = "createMemoryHistory";
+
+/** @since 0.1.0 */
+module HashHistoryOptions = {
+  type t = {window: Js.nullable(Dom.window)};
+
+  [@bs.obj] external make: (~window: Dom.window=?, unit) => t;
+};
+
+/** @since 0.1.0 */
+[@bs.module "history"]
+external createHashHistory: (~options: HashHistoryOptions.t=?, unit) => History.t = "createHashHistory";
